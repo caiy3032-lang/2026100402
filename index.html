@@ -58,13 +58,13 @@
 <div class="help">
   <kbd>空白鍵</kbd> / <kbd>↑</kbd> / 點擊畫面：跳躍（按住跳更高）<br>
   <kbd>↓</kbd>：蹲下（空中按可快速落地）<br>
-  <kbd>1</kbd>~<kbd>4</kbd>：切換恐龍造型
+  <kbd>1</kbd>~<kbd>4</kbd>：切換恐龍造型　🪙 吃金幣累積財富（高處的要跳起來吃）
 </div>
 
 <script>
   const W = 800, H = 220, GROUND = 190, S = 2; // S = 像素縮放
   const FG = '#535353', BG = '#f7f7f7';
-  const VERSION = '1.1.0';
+  const VERSION = '1.2.0';
 
   // ---------- 造型 ----------
   const SKINS = [
@@ -80,9 +80,11 @@
     const n = 0xffffff - parseInt(hex.slice(1), 16);
     return '#' + n.toString(16).padStart(6, '0');
   }
+  function nightSafe(hex) {
+    return canvas.classList.contains('night') ? invertColor(hex) : hex;
+  }
   function dinoColor() {
-    return canvas.classList.contains('night') && skin.id !== 'classic'
-      ? invertColor(skin.color) : skin.color;
+    return skin.id === 'classic' ? skin.color : nightSafe(skin.color);
   }
 
   function setSkin(s) {
@@ -150,12 +152,18 @@
   let state = 'ready'; // ready | running | over
   let dino, obstacles, clouds, bumps, speed, score, spawnTimer, frame;
   let milestone, flashTimer, nextNight, overAt;
+  let coins, coinTimer, runCoins, popups;
   let hi = Number(localStorage.getItem('dino-hi') || 0);
+  let totalCoins = Number(localStorage.getItem('dino-coins') || 0);
   const keys = { jump: false, down: false };
 
   function reset() {
     dino = { x: 50, y: GROUND - 44, w: 40, h: 44, vy: 0, onGround: true, ducking: false };
     obstacles = [];
+    coins = [];
+    coinTimer = 120;
+    runCoins = 0;
+    popups = [];
     speed = 6;
     score = 0;
     spawnTimer = 60;
@@ -197,6 +205,8 @@
 
   // ---------- 障礙物 ----------
   function spawn() {
+    // 金幣還沒完全進場就先等一下，避免障礙物跟金幣疊在一起
+    if (coins.some(c => c.x > W - 60)) { spawnTimer = 10; return; }
     if (score > 300 && Math.random() < 0.25) {
       // 翼龍：低（要跳）、中（要蹲或跳）、高（直接過）
       const heights = [GROUND - 30, GROUND - 58, GROUND - 100];
@@ -209,6 +219,28 @@
       obstacles.push({ type: 'cactus', x: W + 10, y: GROUND - ch, w: cw * n, h: ch, n, cw });
     }
     spawnTimer = (380 + speed * 18 + Math.random() * 350) / speed;
+  }
+
+  // ---------- 金幣 ----------
+  function spawnCoins() {
+    coinTimer = (500 + Math.random() * 500) / speed;
+    if (obstacles.some(o => o.x + o.w > W - 120)) { coinTimer = 15; return; }
+    const n = 3 + Math.floor(Math.random() * 3);
+    const high = Math.random() < 0.5;
+    for (let i = 0; i < n; i++) {
+      // 高處的金幣排成弧形，要跳起來才吃得到
+      const arc = high ? Math.sin(i / (n - 1) * Math.PI) * 25 : 0;
+      coins.push({ x: W + 10 + i * 28, y: (high ? GROUND - 95 : GROUND - 30) - arc, r: 8, phase: i * 0.6 });
+    }
+  }
+
+  function collectCoin(c) {
+    runCoins++;
+    totalCoins++;
+    localStorage.setItem('dino-coins', totalCoins);
+    popups.push({ x: c.x, y: c.y - 10, t: 30 });
+    beep(1300, 0.05, 'square', 0.04);
+    setTimeout(() => beep(1750, 0.08, 'square', 0.04), 50);
   }
 
   function hit(a, b) {
@@ -256,6 +288,21 @@
     if (spawnTimer <= 0) spawn();
     obstacles.forEach(o => { o.x -= (o.type === 'bird' ? speed + 0.5 : speed) * dt; });
     obstacles = obstacles.filter(o => o.x + o.w > -10);
+
+    // 金幣
+    coinTimer -= dt;
+    if (coinTimer <= 0) spawnCoins();
+    const body = { x: dino.x, y: dino.y, w: dino.w, h: dino.h };
+    coins = coins.filter(c => {
+      c.x -= speed * dt;
+      if (hit(body, { x: c.x - c.r, y: c.y - c.r, w: c.r * 2, h: c.r * 2 })) {
+        collectCoin(c);
+        return false;
+      }
+      return c.x > -20;
+    });
+    popups.forEach(p => { p.y -= 0.8 * dt; p.t -= dt; });
+    popups = popups.filter(p => p.t > 0);
 
     // 雲 & 地面
     clouds.forEach(c => { c.x -= speed * 0.2 * dt; });
@@ -350,6 +397,15 @@
     ctx.fillStyle = FG;
   }
 
+  function drawCoin(x, y, r, phase, spinning = true) {
+    // 用寬度縮放做出旋轉的效果
+    const w = spinning ? Math.max(1.5, Math.abs(Math.cos(frame / 8 + phase)) * r) : r;
+    ctx.fillStyle = nightSafe('#f9a825');
+    ctx.beginPath(); ctx.ellipse(x, y, w, r, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = nightSafe('#fdd835');
+    ctx.beginPath(); ctx.ellipse(x, y, w * 0.55, r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
   function drawCloud(c) {
     ctx.fillStyle = '#d8d8d8';
     ctx.fillRect(c.x + 12, c.y, 18, 5);
@@ -373,7 +429,23 @@
       else for (let i = 0; i < o.n; i++) drawCactus(o.x + i * o.cw, o.y, o.cw - 2, o.h);
     });
 
+    coins.forEach(c => drawCoin(c.x, c.y, c.r, c.phase));
+
     drawDino();
+
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    popups.forEach(p => {
+      ctx.fillStyle = nightSafe('#f9a825');
+      ctx.fillText('+1', p.x, p.y);
+    });
+
+    // 金幣數（左上角，停在原地不轉）
+    drawCoin(22, 24, 8, 0, false);
+    ctx.font = 'bold 18px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = FG;
+    ctx.fillText('× ' + runCoins, 36, 30);
 
     // 版本號
     ctx.font = '12px "Courier New", monospace';
@@ -398,9 +470,10 @@
       ctx.fillText('按空白鍵或點擊畫面開始', W / 2, 95);
     } else if (state === 'over') {
       ctx.font = 'bold 26px "Courier New", monospace';
-      ctx.fillText('G A M E   O V E R', W / 2, 85);
+      ctx.fillText('G A M E   O V E R', W / 2, 75);
       ctx.font = '16px "Microsoft JhengHei", sans-serif';
-      ctx.fillText('按空白鍵或點擊畫面重新開始', W / 2, 118);
+      ctx.fillText(`本局金幣 ${runCoins}　累計金幣 ${totalCoins}`, W / 2, 106);
+      ctx.fillText('按空白鍵或點擊畫面重新開始', W / 2, 132);
     }
   }
 

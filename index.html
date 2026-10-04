@@ -76,7 +76,6 @@
   .skin-panel p { margin: 0 0 6px; color: #888; font-size: 0.9rem; }
   .skin-coins { font-size: 1.05rem; font-weight: bold; margin: 8px 0 4px; }
   .skin-msg { min-height: 1.4em; margin: 0 0 10px; font-size: 0.9rem; }
-  .skin-msg.error { color: #e53935; }
   .skin-msg.ok { color: #43a047; }
   .skin-grid {
     display: grid;
@@ -114,11 +113,6 @@
     transform: translateX(-50%);
     font-size: 1.4rem;
   }
-  .skin-card.shake { animation: shake 0.3s; }
-  @keyframes shake {
-    25% { transform: translateX(-5px); }
-    75% { transform: translateX(5px); }
-  }
   .price { color: #f9a825; font-weight: bold; }
   .skin-name { display: flex; align-items: center; gap: 6px; font-size: 0.95rem; }
   .close-btn {
@@ -130,6 +124,43 @@
     color: #fff;
   }
   .close-btn:hover { background: #333; }
+
+  /* 解鎖確認視窗 */
+  .confirm {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .confirm[hidden] { display: none; }
+  .confirm-box {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px 24px;
+    width: 100%;
+    max-width: 320px;
+    text-align: center;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  }
+  .confirm-box canvas { width: 200px; height: 110px; border-radius: 8px; }
+  .confirm-box h3 { margin: 12px 0 6px; }
+  .confirm-info { margin: 0 0 4px; font-size: 0.95rem; }
+  .confirm-warn { min-height: 1.4em; margin: 0 0 14px; font-size: 0.9rem; color: #e53935; }
+  .confirm-actions { display: flex; gap: 10px; justify-content: center; }
+  .confirm-actions button {
+    flex: 1;
+    padding: 10px 0;
+    border-radius: 8px;
+    border: 2px solid #535353;
+  }
+  .btn-cancel { background: #fff; }
+  .btn-unlock { background: #535353; color: #fff; }
+  .btn-unlock:hover { background: #333; }
+  .btn-unlock:disabled { background: #ccc; border-color: #ccc; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -153,10 +184,23 @@
   </div>
 </div>
 
+<div class="confirm" id="confirm" hidden>
+  <div class="confirm-box">
+    <canvas id="confirm-preview"></canvas>
+    <h3 id="confirm-title"></h3>
+    <p class="confirm-info" id="confirm-info"></p>
+    <p class="confirm-warn" id="confirm-warn"></p>
+    <div class="confirm-actions">
+      <button class="btn-cancel" id="confirm-cancel">取消</button>
+      <button class="btn-unlock" id="confirm-ok">🔓 解鎖</button>
+    </div>
+  </div>
+</div>
+
 <script>
   const W = 800, H = 220, GROUND = 190, S = 2; // S = 像素縮放
   const FG = '#535353', BG = '#f7f7f7';
-  const VERSION = '1.5.0';
+  const VERSION = '1.5.1';
 
   // ---------- 造型 ----------
   const SKINS = [
@@ -582,8 +626,9 @@
   // ---------- 造型頁面 ----------
   let skinPageOpen = false;
 
-  function drawSkinPreview(cv, color) {
-    const pw = 80, ph = 64, ox = 20, oy = ph - 6 - 44;
+  // step：null = 站著，0/1 = 跑步的兩個動作
+  function drawSkinPreview(cv, color, pw = 80, ph = 64, scale = S, step = null) {
+    const ox = (pw - 20 * scale) / 2, oy = ph - 6 - 22 * scale;
     cv.width = pw * dpr;
     cv.height = ph * dpr;
     const p = cv.getContext('2d');
@@ -593,12 +638,13 @@
     p.fillStyle = FG;
     p.fillRect(0, ph - 10, pw, 1); // 地面
     p.fillStyle = color;
-    const px = (c, r, w = 1, h = 1) => p.fillRect(ox + c * S, oy + r * S, w * S, h * S);
+    const px = (c, r, w = 1, h = 1) => p.fillRect(ox + c * scale, oy + r * scale, w * scale, h * scale);
     DINO_BODY.forEach((row, r) => {
       for (let c = 0; c < row.length; c++) if (row[c] === '#') px(c, r);
     });
-    px(5, 16, 2, 5); px(5, 21, 3, 1);
-    px(10, 16, 2, 5); px(10, 21, 3, 1);
+    const leg = (c, short) => short ? (px(c, 16, 2, 2), px(c, 18, 3, 1)) : (px(c, 16, 2, 5), px(c, 21, 3, 1));
+    leg(5, step === 1);
+    leg(10, step === 0);
   }
 
   const skinCoins = document.getElementById('skin-coins');
@@ -625,20 +671,53 @@
         ? `${s.name} <kbd>${i + 1}</kbd>`
         : `${s.name} <span class="price">🪙 ${s.price}</span>`;
       card.append(cv, label);
-      card.addEventListener('click', () => (owned ? setSkin(s) : buySkin(s, card)));
+      card.addEventListener('click', () => (owned ? setSkin(s) : openConfirm(s)));
       skinGrid.appendChild(card);
     });
   }
 
-  function buySkin(s, card) {
-    if (totalCoins < s.price) {
-      showSkinMsg(`金幣不足，解鎖「${s.name}」還差 ${s.price - totalCoins} 枚`, 'error');
-      card.classList.remove('shake');
-      void card.offsetWidth; // 讓動畫可以重播
-      card.classList.add('shake');
-      beep(200, 0.15, 'square', 0.04);
-      return;
-    }
+  // ---------- 解鎖確認視窗（含跑步預覽） ----------
+  const confirmEl = document.getElementById('confirm');
+  const confirmPreview = document.getElementById('confirm-preview');
+  const confirmOk = document.getElementById('confirm-ok');
+  let confirmSkin = null, previewTimer = null;
+
+  function openConfirm(s) {
+    confirmSkin = s;
+    const enough = totalCoins >= s.price;
+    document.getElementById('confirm-title').textContent = `要解鎖「${s.name}」造型嗎？`;
+    document.getElementById('confirm-info').textContent = `需要 🪙 ${s.price}，目前持有 🪙 ${totalCoins}`;
+    document.getElementById('confirm-warn').textContent =
+      enough ? '' : `金幣不足，還差 ${s.price - totalCoins} 枚`;
+    confirmOk.disabled = !enough;
+
+    let step = 0;
+    drawSkinPreview(confirmPreview, s.color, 200, 110, 3, step);
+    previewTimer = setInterval(() => {
+      step = 1 - step;
+      drawSkinPreview(confirmPreview, s.color, 200, 110, 3, step);
+    }, 130);
+
+    confirmEl.hidden = false;
+    (enough ? confirmOk : document.getElementById('confirm-cancel')).focus();
+  }
+
+  function closeConfirm() {
+    clearInterval(previewTimer);
+    confirmEl.hidden = true;
+    confirmSkin = null;
+  }
+
+  confirmOk.addEventListener('click', () => {
+    const s = confirmSkin;
+    closeConfirm();
+    buySkin(s);
+  });
+  document.getElementById('confirm-cancel').addEventListener('click', closeConfirm);
+  confirmEl.addEventListener('click', e => { if (e.target === confirmEl) closeConfirm(); });
+
+  function buySkin(s) {
+    if (totalCoins < s.price) return;
     totalCoins -= s.price;
     unlocked.add(s.id);
     setSkin(s);
@@ -693,6 +772,10 @@
     const skinKey = /^Digit[1-9]$/.test(e.code) && SKINS[Number(e.code.slice(5)) - 1];
     if (skinKey) {
       setSkin(skinKey);
+      return;
+    }
+    if (!confirmEl.hidden) {
+      if (e.code === 'Escape') closeConfirm(); // Enter 交給有焦點的按鈕處理
       return;
     }
     if (skinPageOpen) {

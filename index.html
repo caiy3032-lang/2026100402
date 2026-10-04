@@ -73,7 +73,11 @@
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
   }
   .skin-panel h2 { margin: 0 0 4px; }
-  .skin-panel p { margin: 0 0 18px; color: #888; font-size: 0.9rem; }
+  .skin-panel p { margin: 0 0 6px; color: #888; font-size: 0.9rem; }
+  .skin-coins { font-size: 1.05rem; font-weight: bold; margin: 8px 0 4px; }
+  .skin-msg { min-height: 1.4em; margin: 0 0 10px; font-size: 0.9rem; }
+  .skin-msg.error { color: #e53935; }
+  .skin-msg.ok { color: #43a047; }
   .skin-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
@@ -101,6 +105,21 @@
     font-size: 0.9rem;
   }
   .skin-card canvas { width: 80px; height: 64px; border-radius: 6px; }
+  .skin-card.locked canvas { opacity: 0.35; }
+  .skin-card.locked::before {
+    content: '🔒';
+    position: absolute;
+    top: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 1.4rem;
+  }
+  .skin-card.shake { animation: shake 0.3s; }
+  @keyframes shake {
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+  }
+  .price { color: #f9a825; font-weight: bold; }
   .skin-name { display: flex; align-items: center; gap: 6px; font-size: 0.95rem; }
   .close-btn {
     margin-top: 20px;
@@ -119,13 +138,16 @@
 <div class="help">
   <kbd>空白鍵</kbd> / <kbd>↑</kbd> / 點擊畫面：跳躍（按住跳更高）<br>
   <kbd>↓</kbd>：蹲下（空中按可快速落地）<br>
-  <kbd>1</kbd>~<kbd>7</kbd>：快速切換恐龍造型　🪙 吃金幣累積財富（高處的要跳起來吃）
+  <kbd>1</kbd>~<kbd>7</kbd>：快速切換已解鎖的造型　🪙 吃金幣（高處的要跳起來吃），可在造型頁面解鎖新顏色<br>
+  ⚠️ 重新整理網頁後，金幣與解鎖的造型都會重置
 </div>
 
 <div class="skin-page" id="skin-page" hidden>
   <div class="skin-panel">
     <h2>🎨 選擇造型</h2>
-    <p>點選喜歡的顏色，遊戲會先暫停</p>
+    <p>點選已解鎖的顏色來換造型，鎖住的造型要用金幣解鎖（遊戲會先暫停）</p>
+    <div class="skin-coins" id="skin-coins"></div>
+    <div class="skin-msg" id="skin-msg"></div>
     <div class="skin-grid" id="skin-grid"></div>
     <button class="close-btn" id="skin-close">返回遊戲</button>
   </div>
@@ -134,19 +156,22 @@
 <script>
   const W = 800, H = 220, GROUND = 190, S = 2; // S = 像素縮放
   const FG = '#535353', BG = '#f7f7f7';
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
 
   // ---------- 造型 ----------
   const SKINS = [
-    { id: 'classic', name: '經典', color: FG },
-    { id: 'red',     name: '紅',   color: '#e53935' },
-    { id: 'blue',    name: '藍',   color: '#1e88e5' },
-    { id: 'green',   name: '綠',   color: '#43a047' },
-    { id: 'orange',  name: '橙',   color: '#fb8c00' },
-    { id: 'yellow',  name: '黃',   color: '#fbc02d' },
-    { id: 'purple',  name: '紫',   color: '#8e24aa' },
+    { id: 'classic', name: '經典', color: FG,        price: 0 },
+    { id: 'red',     name: '紅',   color: '#e53935', price: 10 },
+    { id: 'blue',    name: '藍',   color: '#1e88e5', price: 10 },
+    { id: 'green',   name: '綠',   color: '#43a047', price: 10 },
+    { id: 'orange',  name: '橙',   color: '#fb8c00', price: 10 },
+    { id: 'yellow',  name: '黃',   color: '#fbc02d', price: 10 },
+    { id: 'purple',  name: '紫',   color: '#8e24aa', price: 10 },
   ];
-  let skin = SKINS.find(s => s.id === localStorage.getItem('dino-skin')) || SKINS[0];
+  // 解鎖狀態和造型選擇都不保存，重新整理就回到只有經典造型
+  const unlocked = new Set(['classic']);
+  let skin = SKINS[0];
+  localStorage.removeItem('dino-skin'); // 清掉舊版存下來的造型選擇
 
   // 夜晚時整個 canvas 會被 invert，先把顏色反轉一次，顯示出來才會是原本的顏色
   function invertColor(hex) {
@@ -165,8 +190,8 @@
   const skinOpenBtn = document.getElementById('skin-open');
 
   function setSkin(s) {
+    if (!unlocked.has(s.id)) return;
     skin = s;
-    localStorage.setItem('dino-skin', s.id);
     skinOpenBtn.innerHTML = `🎨 造型：<span class="dot" style="background:${s.color}"></span>${s.name}`;
     skinGrid.querySelectorAll('.skin-card').forEach(c =>
       c.classList.toggle('active', c.dataset.skin === s.id));
@@ -576,24 +601,55 @@
     px(10, 16, 2, 5); px(10, 21, 3, 1);
   }
 
+  const skinCoins = document.getElementById('skin-coins');
+  const skinMsg = document.getElementById('skin-msg');
+
+  function showSkinMsg(text, type) {
+    skinMsg.textContent = text;
+    skinMsg.className = 'skin-msg ' + type;
+  }
+
   function renderSkinPage() {
+    skinCoins.textContent = `持有金幣：🪙 ${totalCoins}`;
     skinGrid.innerHTML = '';
     SKINS.forEach((s, i) => {
+      const owned = unlocked.has(s.id);
       const card = document.createElement('button');
-      card.className = 'skin-card' + (s.id === skin.id ? ' active' : '');
+      card.className = 'skin-card' + (s.id === skin.id ? ' active' : '') + (owned ? '' : ' locked');
       card.dataset.skin = s.id;
       const cv = document.createElement('canvas');
       drawSkinPreview(cv, s.color);
       const label = document.createElement('div');
       label.className = 'skin-name';
-      label.innerHTML = `${s.name} <kbd>${i + 1}</kbd>`;
+      label.innerHTML = owned
+        ? `${s.name} <kbd>${i + 1}</kbd>`
+        : `${s.name} <span class="price">🪙 ${s.price}</span>`;
       card.append(cv, label);
-      card.addEventListener('click', () => setSkin(s));
+      card.addEventListener('click', () => (owned ? setSkin(s) : buySkin(s, card)));
       skinGrid.appendChild(card);
     });
   }
 
+  function buySkin(s, card) {
+    if (totalCoins < s.price) {
+      showSkinMsg(`金幣不足，解鎖「${s.name}」還差 ${s.price - totalCoins} 枚`, 'error');
+      card.classList.remove('shake');
+      void card.offsetWidth; // 讓動畫可以重播
+      card.classList.add('shake');
+      beep(200, 0.15, 'square', 0.04);
+      return;
+    }
+    totalCoins -= s.price;
+    unlocked.add(s.id);
+    setSkin(s);
+    renderSkinPage();
+    showSkinMsg(`🎉 解鎖成功！已換上「${s.name}」造型`, 'ok');
+    beep(1000, 0.08);
+    setTimeout(() => beep(1500, 0.12), 80);
+  }
+
   function openSkinPage() {
+    showSkinMsg('', '');
     renderSkinPage();
     skinPage.hidden = false;
     skinPageOpen = true;

@@ -179,7 +179,7 @@
   <kbd>空白鍵</kbd> / <kbd>↑</kbd> / 點擊畫面：跳躍（按住跳更高）<br>
   <kbd>↓</kbd>：蹲下（空中按可快速落地）<br>
   <kbd>1</kbd>~<kbd>7</kbd>：快速切換已解鎖的顏色　🪙 吃金幣（高處的要跳起來吃），可在造型頁面解鎖顏色和衣服<br>
-  ⚠️ 重新整理網頁後，金幣與解鎖的顏色、衣服都會重置
+  ⚠️ 重新整理網頁後，最高分、金幣與解鎖的顏色、衣服都會重置
 </div>
 
 <div class="skin-page" id="skin-page" hidden>
@@ -213,7 +213,7 @@
 <script>
   const W = 800, H = 220, GROUND = 190, S = 2; // S = 像素縮放
   const FG = '#535353', BG = '#f7f7f7';
-  const VERSION = '1.7.0';
+  const VERSION = '1.7.1';
 
   // ---------- 造型 ----------
   const SKINS = [
@@ -500,7 +500,9 @@
   let dino, obstacles, clouds, bumps, speed, score, spawnTimer, frame;
   let milestone, flashTimer, nextNight, overAt;
   let coins, coinTimer, runCoins, popups;
-  let hi = Number(localStorage.getItem('dino-hi') || 0);
+  // 最高分只在這次開啟網頁期間保留，重新整理就歸零
+  let hi = 0;
+  localStorage.removeItem('dino-hi'); // 清掉舊版存下來的最高分
   // 累計金幣只在這次開啟網頁期間跨局累積，重新整理就歸零
   let totalCoins = 0;
   localStorage.removeItem('dino-coins'); // 清掉舊版存下來的金幣
@@ -546,10 +548,7 @@
     state = 'over';
     overAt = performance.now();
     beep(150, 0.3, 'sawtooth', 0.06);
-    if (Math.floor(score) > hi) {
-      hi = Math.floor(score);
-      localStorage.setItem('dino-hi', hi);
-    }
+    hi = Math.max(hi, Math.floor(score));
   }
 
   // ---------- 障礙物 ----------

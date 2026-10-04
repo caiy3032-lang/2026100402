@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>小恐龍跑酷</title>
 <style>
+  *, *::before, *::after { box-sizing: border-box; }
   body {
     margin: 0;
     min-height: 100vh;
@@ -17,7 +18,7 @@
     color: #535353;
     user-select: none;
   }
-  canvas {
+  #game {
     width: 100%;
     max-width: 800px;
     background: #f7f7f7;
@@ -25,7 +26,7 @@
     touch-action: none;
     transition: filter 0.8s;
   }
-  canvas.night { filter: invert(1); }
+  #game.night { filter: invert(1); }
   .help { margin-top: 14px; font-size: 0.95rem; text-align: center; line-height: 1.7; }
   kbd {
     background: #eee;
@@ -34,37 +35,106 @@
     padding: 1px 6px;
     font-family: inherit;
   }
-  .skins { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
-  .skins button {
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .open-skins {
+    margin-top: 12px;
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
+    gap: 8px;
+    padding: 8px 16px;
     border: 2px solid #ddd;
     border-radius: 8px;
     background: #fff;
-    color: inherit;
-    font: inherit;
-    font-size: 0.9rem;
-    cursor: pointer;
   }
-  .skins button.active { border-color: #535353; font-weight: bold; }
-  .skins .dot { width: 14px; height: 14px; border-radius: 50%; }
+  .open-skins:hover { border-color: #535353; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+
+  /* 造型頁面 */
+  .skin-page {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .skin-page[hidden] { display: none; }
+  .skin-panel {
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px;
+    width: 100%;
+    min-width: 0;
+    max-width: 640px;
+    max-height: 100%;
+    overflow-y: auto;
+    text-align: center;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  }
+  .skin-panel h2 { margin: 0 0 4px; }
+  .skin-panel p { margin: 0 0 18px; color: #888; font-size: 0.9rem; }
+  .skin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 12px;
+  }
+  .skin-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 8px 10px;
+    border: 2px solid #e5e5e5;
+    border-radius: 10px;
+    background: #fafafa;
+    transition: transform 0.1s, border-color 0.1s;
+  }
+  .skin-card:hover { transform: translateY(-2px); border-color: #bbb; }
+  .skin-card.active { border-color: #535353; background: #fff; font-weight: bold; }
+  .skin-card.active::after {
+    content: '✓';
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    font-size: 0.9rem;
+  }
+  .skin-card canvas { width: 80px; height: 64px; border-radius: 6px; }
+  .skin-name { display: flex; align-items: center; gap: 6px; font-size: 0.95rem; }
+  .close-btn {
+    margin-top: 20px;
+    padding: 10px 28px;
+    border: none;
+    border-radius: 8px;
+    background: #535353;
+    color: #fff;
+  }
+  .close-btn:hover { background: #333; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
-<div class="skins" id="skins">造型：</div>
+<button class="open-skins" id="skin-open"></button>
 <div class="help">
   <kbd>空白鍵</kbd> / <kbd>↑</kbd> / 點擊畫面：跳躍（按住跳更高）<br>
   <kbd>↓</kbd>：蹲下（空中按可快速落地）<br>
-  <kbd>1</kbd>~<kbd>4</kbd>：切換恐龍造型　🪙 吃金幣累積財富（高處的要跳起來吃）
+  <kbd>1</kbd>~<kbd>7</kbd>：快速切換恐龍造型　🪙 吃金幣累積財富（高處的要跳起來吃）
+</div>
+
+<div class="skin-page" id="skin-page" hidden>
+  <div class="skin-panel">
+    <h2>🎨 選擇造型</h2>
+    <p>點選喜歡的顏色，遊戲會先暫停</p>
+    <div class="skin-grid" id="skin-grid"></div>
+    <button class="close-btn" id="skin-close">返回遊戲</button>
+  </div>
 </div>
 
 <script>
   const W = 800, H = 220, GROUND = 190, S = 2; // S = 像素縮放
   const FG = '#535353', BG = '#f7f7f7';
-  const VERSION = '1.3.2';
+  const VERSION = '1.4.0';
 
   // ---------- 造型 ----------
   const SKINS = [
@@ -72,6 +142,9 @@
     { id: 'red',     name: '紅',   color: '#e53935' },
     { id: 'blue',    name: '藍',   color: '#1e88e5' },
     { id: 'green',   name: '綠',   color: '#43a047' },
+    { id: 'orange',  name: '橙',   color: '#fb8c00' },
+    { id: 'yellow',  name: '黃',   color: '#fbc02d' },
+    { id: 'purple',  name: '紫',   color: '#8e24aa' },
   ];
   let skin = SKINS.find(s => s.id === localStorage.getItem('dino-skin')) || SKINS[0];
 
@@ -87,21 +160,17 @@
     return skin.id === 'classic' ? skin.color : nightSafe(skin.color);
   }
 
+  const skinPage = document.getElementById('skin-page');
+  const skinGrid = document.getElementById('skin-grid');
+  const skinOpenBtn = document.getElementById('skin-open');
+
   function setSkin(s) {
     skin = s;
     localStorage.setItem('dino-skin', s.id);
-    document.querySelectorAll('#skins button').forEach(b =>
-      b.classList.toggle('active', b.dataset.skin === s.id));
+    skinOpenBtn.innerHTML = `🎨 造型：<span class="dot" style="background:${s.color}"></span>${s.name}`;
+    skinGrid.querySelectorAll('.skin-card').forEach(c =>
+      c.classList.toggle('active', c.dataset.skin === s.id));
   }
-
-  const skinBar = document.getElementById('skins');
-  SKINS.forEach(s => {
-    const btn = document.createElement('button');
-    btn.dataset.skin = s.id;
-    btn.innerHTML = `<span class="dot" style="background:${s.color}"></span>${s.name}`;
-    btn.addEventListener('click', () => { setSkin(s); btn.blur(); });
-    skinBar.appendChild(btn);
-  });
   setSkin(skin);
 
   const canvas = document.getElementById('game');
@@ -485,12 +554,68 @@
     }
   }
 
+  // ---------- 造型頁面 ----------
+  let skinPageOpen = false;
+
+  function drawSkinPreview(cv, color) {
+    const pw = 80, ph = 64, ox = 20, oy = ph - 6 - 44;
+    cv.width = pw * dpr;
+    cv.height = ph * dpr;
+    const p = cv.getContext('2d');
+    p.scale(dpr, dpr);
+    p.fillStyle = BG;
+    p.fillRect(0, 0, pw, ph);
+    p.fillStyle = FG;
+    p.fillRect(0, ph - 10, pw, 1); // 地面
+    p.fillStyle = color;
+    const px = (c, r, w = 1, h = 1) => p.fillRect(ox + c * S, oy + r * S, w * S, h * S);
+    DINO_BODY.forEach((row, r) => {
+      for (let c = 0; c < row.length; c++) if (row[c] === '#') px(c, r);
+    });
+    px(5, 16, 2, 5); px(5, 21, 3, 1);
+    px(10, 16, 2, 5); px(10, 21, 3, 1);
+  }
+
+  function renderSkinPage() {
+    skinGrid.innerHTML = '';
+    SKINS.forEach((s, i) => {
+      const card = document.createElement('button');
+      card.className = 'skin-card' + (s.id === skin.id ? ' active' : '');
+      card.dataset.skin = s.id;
+      const cv = document.createElement('canvas');
+      drawSkinPreview(cv, s.color);
+      const label = document.createElement('div');
+      label.className = 'skin-name';
+      label.innerHTML = `${s.name} <kbd>${i + 1}</kbd>`;
+      card.append(cv, label);
+      card.addEventListener('click', () => setSkin(s));
+      skinGrid.appendChild(card);
+    });
+  }
+
+  function openSkinPage() {
+    renderSkinPage();
+    skinPage.hidden = false;
+    skinPageOpen = true;
+    keys.down = false;
+  }
+
+  function closeSkinPage() {
+    skinPage.hidden = true;
+    skinPageOpen = false;
+    document.activeElement.blur(); // 避免空白鍵又按到按鈕
+  }
+
+  skinOpenBtn.addEventListener('click', openSkinPage);
+  document.getElementById('skin-close').addEventListener('click', closeSkinPage);
+  skinPage.addEventListener('click', e => { if (e.target === skinPage) closeSkinPage(); });
+
   // ---------- 主迴圈 ----------
   let last = performance.now();
   function loop(now) {
     const dt = Math.min((now - last) / 16.667, 3);
     last = now;
-    if (state === 'running') update(dt);
+    if (state === 'running' && !skinPageOpen) update(dt); // 造型頁面打開時暫停
     draw();
     requestAnimationFrame(loop);
   }
@@ -509,14 +634,21 @@
   }
 
   document.addEventListener('keydown', e => {
+    const skinKey = /^Digit[1-9]$/.test(e.code) && SKINS[Number(e.code.slice(5)) - 1];
+    if (skinKey) {
+      setSkin(skinKey);
+      return;
+    }
+    if (skinPageOpen) {
+      if (e.code === 'Escape') closeSkinPage();
+      return;
+    }
     if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) {
       e.preventDefault();
       if (!e.repeat) pressJump();
     } else if (['ArrowDown', 'KeyS'].includes(e.code)) {
       e.preventDefault();
       keys.down = true;
-    } else if (/^Digit[1-4]$/.test(e.code)) {
-      setSkin(SKINS[Number(e.code.slice(5)) - 1]);
     }
   });
   document.addEventListener('keyup', e => {

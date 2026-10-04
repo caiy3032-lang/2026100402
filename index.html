@@ -213,7 +213,7 @@
 <script>
   const W = 800, H = 220, GROUND = 190, S = 2; // S = 像素縮放
   const FG = '#535353', BG = '#f7f7f7';
-  const VERSION = '1.6.3';
+  const VERSION = '1.7.0';
 
   // ---------- 造型 ----------
   const SKINS = [
@@ -556,11 +556,17 @@
   function spawn() {
     // 金幣還沒完全進場就先等一下，避免障礙物跟金幣疊在一起
     if (coins.some(c => c.x > W - 60)) { spawnTimer = 10; return; }
-    if (score > 300 && Math.random() < 0.25) {
+    const r = Math.random();
+    if (score > 300 && r < 0.2) {
       // 翼龍：低（要跳）、中（要蹲或跳）、高（直接過）
       const heights = [GROUND - 30, GROUND - 58, GROUND - 100];
       const y = heights[Math.floor(Math.random() * heights.length)];
       obstacles.push({ type: 'bird', x: W + 10, y, w: 46, h: 26 });
+    } else if (score > 200 && r >= 0.8) {
+      // 烏鴉：飛得比較快，還會上下飄。低（要跳）、中（要蹲）
+      const baseY = Math.random() < 0.5 ? GROUND - 30 : GROUND - 50;
+      obstacles.push({ type: 'crow', x: W + 10, y: baseY, baseY, t: 0, w: 40, h: 20 });
+      beep(330, 0.06, 'sawtooth', 0.025); // 嘎！提醒烏鴉來了
     } else {
       const large = Math.random() < 0.5;
       const n = 1 + Math.floor(Math.random() * (speed > 8 ? 3 : 2));
@@ -634,7 +640,15 @@
     // 障礙物
     spawnTimer -= dt;
     if (spawnTimer <= 0) spawn();
-    obstacles.forEach(o => { o.x -= (o.type === 'bird' ? speed + 0.5 : speed) * dt; });
+    obstacles.forEach(o => {
+      if (o.type === 'crow') {
+        o.t += dt;
+        o.y = o.baseY + Math.sin(o.t / 10) * 6;
+        o.x -= (speed + 1.2) * dt;
+      } else {
+        o.x -= (o.type === 'bird' ? speed + 0.5 : speed) * dt;
+      }
+    });
     obstacles = obstacles.filter(o => o.x + o.w > -10);
 
     // 金幣
@@ -675,7 +689,7 @@
 
   // ---------- 繪圖 ----------
   function drawDino() {
-    const { x, y } = dino;
+    const x = Math.round(dino.x), y = Math.round(dino.y); // 取整數，跳躍時才不會出現細縫
     const px = (c, r, w = 1, h = 1) => ctx.fillRect(x + c * S, y + r * S, w * S, h * S);
     const running = state === 'running' && dino.onGround;
     const step = Math.floor(frame / 5) % 2;
@@ -747,6 +761,47 @@
     ctx.fillStyle = FG;
   }
 
+  // 烏鴉像素圖（20 x 10，每格 2px，頭朝左），兩個拍翅動作；'w' 是眼睛
+  const CROW_FRAMES = [
+    [
+      '...........##.......',
+      '..........###.......',
+      '.........####.......',
+      '..##....#####.......',
+      '.#w#############....',
+      '##################..',
+      '...#############.###',
+      '......#######.......',
+      '....................',
+      '....................',
+    ],
+    [
+      '....................',
+      '....................',
+      '....................',
+      '..##................',
+      '.#w#############....',
+      '##################..',
+      '...#############.###',
+      '......#######.......',
+      '.......####.........',
+      '........###.........',
+    ],
+  ];
+
+  function drawCrow(o) {
+    const rows = CROW_FRAMES[Math.floor(frame / 8) % 2];
+    const x = Math.round(o.x), y = Math.round(o.y); // 取整數，避免像素之間出現細縫
+    rows.forEach((row, r) => {
+      for (let c = 0; c < row.length; c++) {
+        if (row[c] === '.') continue;
+        ctx.fillStyle = row[c] === 'w' ? BG : '#222222';
+        ctx.fillRect(x + c * 2, y + r * 2, 2, 2);
+      }
+    });
+    ctx.fillStyle = FG;
+  }
+
   function drawCoin(x, y, r, phase, spinning = true) {
     // 用寬度縮放做出旋轉的效果
     const w = spinning ? Math.max(1.5, Math.abs(Math.cos(frame / 8 + phase)) * r) : r;
@@ -776,6 +831,7 @@
 
     obstacles.forEach(o => {
       if (o.type === 'bird') drawBird(o);
+      else if (o.type === 'crow') drawCrow(o);
       else for (let i = 0; i < o.n; i++) drawCactus(o.x + i * o.cw, o.y, o.cw - 2, o.h);
     });
 

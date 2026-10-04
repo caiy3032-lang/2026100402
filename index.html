@@ -77,6 +77,14 @@
   .skin-coins { font-size: 1.05rem; font-weight: bold; margin: 8px 0 4px; }
   .skin-msg { min-height: 1.4em; margin: 0 0 10px; font-size: 0.9rem; }
   .skin-msg.ok { color: #43a047; }
+  .skin-tabs { display: flex; justify-content: center; gap: 8px; margin: 8px 0 10px; }
+  .skin-tabs button {
+    padding: 6px 18px;
+    border: 2px solid #ddd;
+    border-radius: 999px;
+    background: #fff;
+  }
+  .skin-tabs button.active { border-color: #535353; background: #535353; color: #fff; }
   .skin-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
@@ -114,7 +122,8 @@
     font-size: 1.4rem;
   }
   .price { color: #f9a825; font-weight: bold; }
-  .skin-name { display: flex; align-items: center; gap: 6px; font-size: 0.95rem; }
+  .skin-name { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 6px; font-size: 0.95rem; }
+  .skin-name .nm { white-space: nowrap; }
   .close-btn {
     margin-top: 20px;
     padding: 10px 28px;
@@ -169,15 +178,19 @@
 <div class="help">
   <kbd>空白鍵</kbd> / <kbd>↑</kbd> / 點擊畫面：跳躍（按住跳更高）<br>
   <kbd>↓</kbd>：蹲下（空中按可快速落地）<br>
-  <kbd>1</kbd>~<kbd>7</kbd>：快速切換已解鎖的造型　🪙 吃金幣（高處的要跳起來吃），可在造型頁面解鎖新顏色<br>
-  ⚠️ 重新整理網頁後，金幣與解鎖的造型都會重置
+  <kbd>1</kbd>~<kbd>7</kbd>：快速切換已解鎖的顏色　🪙 吃金幣（高處的要跳起來吃），可在造型頁面解鎖顏色和衣服<br>
+  ⚠️ 重新整理網頁後，金幣與解鎖的顏色、衣服都會重置
 </div>
 
 <div class="skin-page" id="skin-page" hidden>
   <div class="skin-panel">
-    <h2>🎨 選擇造型</h2>
-    <p>點選已解鎖的顏色來換造型，鎖住的造型要用金幣解鎖（遊戲會先暫停）</p>
+    <h2>🦖 恐龍造型</h2>
+    <p>顏色和衣服可以自由搭配，鎖住的要用金幣解鎖（遊戲會先暫停）</p>
     <div class="skin-coins" id="skin-coins"></div>
+    <div class="skin-tabs">
+      <button data-tab="color">🎨 顏色</button>
+      <button data-tab="cloth">👕 衣服</button>
+    </div>
     <div class="skin-msg" id="skin-msg"></div>
     <div class="skin-grid" id="skin-grid"></div>
     <button class="close-btn" id="skin-close">返回遊戲</button>
@@ -200,7 +213,7 @@
 <script>
   const W = 800, H = 220, GROUND = 190, S = 2; // S = 像素縮放
   const FG = '#535353', BG = '#f7f7f7';
-  const VERSION = '1.5.1';
+  const VERSION = '1.6.0';
 
   // ---------- 造型 ----------
   const SKINS = [
@@ -212,9 +225,40 @@
     { id: 'yellow',  name: '黃',   color: '#fbc02d', price: 10 },
     { id: 'purple',  name: '紫',   color: '#8e24aa', price: 10 },
   ];
-  // 解鎖狀態和造型選擇都不保存，重新整理就回到只有經典造型
+  // 衣服是疊在恐龍身上的像素圖，座標系統和 DINO_BODY 相同（20 欄 x 22 列，每格 S=2px）
+  // pixels：每列字串，'.' = 透明，其他字元對應 colors；offsetY = pixels 第一列畫在恐龍第幾列
+  // duck：蹲下時的像素圖（27 欄 x 13 列，從第 0 列開始）；沒有就蹲下時不畫
+  const CLOTHES = [
+    {
+      id: 'tshirt', name: '灰色T恤', emoji: '👕', price: 10,
+      colors: { a: '#c3c4c6', b: '#a9aaad' },
+      offsetY: 6,
+      pixels: [
+        '.........abbba......',
+        '........aaaaaaa.....',
+        '......aaaaaaaaaa....',
+        '.....aaaaaaaaaaaa...',
+        '....aaaaaaaaaaaa....',
+        '....aaaaaaaaaaaa....',
+        '....bbbbbbbbbbb.....',
+      ],
+      duck: [
+        '...........................',
+        '......aaaaaaaaaab..........',
+        '......aaaaaaaaaab..........',
+        '......aaaaaaaaaab..........',
+        '......aaaaaaaaaab..........',
+        '......bbbbbbbbbbb..........',
+      ],
+    },
+  ];
+
+  // 解鎖狀態和造型選擇都不保存，重新整理就回到只有經典造型、不穿衣服
   const unlocked = new Set(['classic']);
+  const unlockedClothes = new Set();
   let skin = SKINS[0];
+  let outfit = null; // 目前穿的衣服，null = 沒穿
+  let skinTab = 'color'; // 造型頁面目前的分頁：color | cloth
   localStorage.removeItem('dino-skin'); // 清掉舊版存下來的造型選擇
 
   // 夜晚時整個 canvas 會被 invert，先把顏色反轉一次，顯示出來才會是原本的顏色
@@ -233,14 +277,39 @@
   const skinGrid = document.getElementById('skin-grid');
   const skinOpenBtn = document.getElementById('skin-open');
 
+  function updateSkinButton() {
+    skinOpenBtn.innerHTML = `🎨 造型：<span class="dot" style="background:${skin.color}"></span>${skin.name}` +
+      (outfit ? ` ＋ ${outfit.emoji} ${outfit.name}` : '');
+  }
+
   function setSkin(s) {
     if (!unlocked.has(s.id)) return;
     skin = s;
-    skinOpenBtn.innerHTML = `🎨 造型：<span class="dot" style="background:${s.color}"></span>${s.name}`;
-    skinGrid.querySelectorAll('.skin-card').forEach(c =>
-      c.classList.toggle('active', c.dataset.skin === s.id));
+    updateSkinButton();
+    if (!skinPage.hidden) renderSkinPage();
   }
-  setSkin(skin);
+
+  function setOutfit(item) {
+    if (item && !unlockedClothes.has(item.id)) return;
+    outfit = item;
+    updateSkinButton();
+    if (!skinPage.hidden) renderSkinPage();
+  }
+  updateSkinButton();
+
+  // 把衣服疊畫在恐龍上；colorFn 用來處理夜晚模式的顏色反轉
+  function drawOutfit(p, ox, oy, scale, item, ducking, colorFn = c => c) {
+    const rows = item && (ducking ? item.duck : item.pixels);
+    if (!rows) return;
+    const top = ducking ? 0 : (item.offsetY || 0);
+    rows.forEach((row, r) => {
+      for (let c = 0; c < row.length; c++) {
+        if (row[c] === '.') continue;
+        p.fillStyle = colorFn(item.colors[row[c]]);
+        p.fillRect(ox + c * scale, oy + (top + r) * scale, scale, scale);
+      }
+    });
+  }
 
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -489,21 +558,23 @@
       const dl = (c, short) => short ? (px(c, 8, 2, 2), px(c, 10, 3, 1)) : (px(c, 8, 2, 4), px(c, 12, 3, 1));
       dl(6, running && step === 1);
       dl(12, running && step === 0);
+      drawOutfit(ctx, x, y, S, outfit, true, nightSafe);
       return;
     }
 
     DINO_BODY.forEach((row, r) => {
       for (let c = 0; c < row.length; c++) if (row[c] === '#') px(c, r);
     });
+    leg(5, 16, running && step === 1);
+    leg(10, 16, running && step === 0);
+
+    drawOutfit(ctx, x, y, S, outfit, false, nightSafe);
 
     if (state === 'over') {
-      // 死掉時的 X 眼
+      // 死掉時的 X 眼（畫在衣服之後，保持在最上層）
       ctx.fillStyle = BG; px(11, 0, 3, 3);
       ctx.fillStyle = color; px(11, 0); px(13, 0); px(12, 1); px(11, 2); px(13, 2);
     }
-
-    leg(5, 16, running && step === 1);
-    leg(10, 16, running && step === 0);
   }
 
   function drawCactus(x, y, w, h) {
@@ -627,7 +698,7 @@
   let skinPageOpen = false;
 
   // step：null = 站著，0/1 = 跑步的兩個動作
-  function drawSkinPreview(cv, color, pw = 80, ph = 64, scale = S, step = null) {
+  function drawSkinPreview(cv, color, item, pw = 80, ph = 64, scale = S, step = null) {
     const ox = (pw - 20 * scale) / 2, oy = ph - 6 - 22 * scale;
     cv.width = pw * dpr;
     cv.height = ph * dpr;
@@ -645,6 +716,7 @@
     const leg = (c, short) => short ? (px(c, 16, 2, 2), px(c, 18, 3, 1)) : (px(c, 16, 2, 5), px(c, 21, 3, 1));
     leg(5, step === 1);
     leg(10, step === 0);
+    drawOutfit(p, ox, oy, scale, item, false);
   }
 
   const skinCoins = document.getElementById('skin-coins');
@@ -655,47 +727,87 @@
     skinMsg.className = 'skin-msg ' + type;
   }
 
+  // 造型分兩類：kind = 'color'（顏色）或 'cloth'（衣服）
+  // 預覽時要呈現的樣子：換顏色就穿著目前的衣服，換衣服就用目前的顏色
+  function lookOf(kind, item) {
+    return kind === 'color' ? { color: item.color, item: outfit } : { color: skin.color, item };
+  }
+
+  function makeCard(kind, item, { active, owned, label, onClick }) {
+    const card = document.createElement('button');
+    card.className = 'skin-card' + (active ? ' active' : '') + (owned ? '' : ' locked');
+    const cv = document.createElement('canvas');
+    const look = lookOf(kind, item);
+    drawSkinPreview(cv, look.color, look.item);
+    const name = document.createElement('div');
+    name.className = 'skin-name';
+    name.innerHTML = label;
+    card.append(cv, name);
+    card.addEventListener('click', onClick);
+    return card;
+  }
+
   function renderSkinPage() {
     skinCoins.textContent = `持有金幣：🪙 ${totalCoins}`;
+    document.querySelectorAll('.skin-tabs button').forEach(b =>
+      b.classList.toggle('active', b.dataset.tab === skinTab));
     skinGrid.innerHTML = '';
-    SKINS.forEach((s, i) => {
-      const owned = unlocked.has(s.id);
-      const card = document.createElement('button');
-      card.className = 'skin-card' + (s.id === skin.id ? ' active' : '') + (owned ? '' : ' locked');
-      card.dataset.skin = s.id;
-      const cv = document.createElement('canvas');
-      drawSkinPreview(cv, s.color);
-      const label = document.createElement('div');
-      label.className = 'skin-name';
-      label.innerHTML = owned
-        ? `${s.name} <kbd>${i + 1}</kbd>`
-        : `${s.name} <span class="price">🪙 ${s.price}</span>`;
-      card.append(cv, label);
-      card.addEventListener('click', () => (owned ? setSkin(s) : openConfirm(s)));
-      skinGrid.appendChild(card);
-    });
+
+    if (skinTab === 'color') {
+      SKINS.forEach((s, i) => {
+        const owned = unlocked.has(s.id);
+        skinGrid.appendChild(makeCard('color', s, {
+          active: s.id === skin.id,
+          owned,
+          label: owned ? `<span class="nm">${s.name}</span> <kbd>${i + 1}</kbd>` : `<span class="nm">${s.name}</span> <span class="price">🪙 ${s.price}</span>`,
+          onClick: () => (owned ? setSkin(s) : openConfirm('color', s)),
+        }));
+      });
+    } else {
+      skinGrid.appendChild(makeCard('cloth', null, {
+        active: !outfit, owned: true, label: '不穿', onClick: () => setOutfit(null),
+      }));
+      CLOTHES.forEach(c => {
+        const owned = unlockedClothes.has(c.id);
+        skinGrid.appendChild(makeCard('cloth', c, {
+          active: outfit === c,
+          owned,
+          label: owned ? `<span class="nm">${c.emoji} ${c.name}</span>` : `<span class="nm">${c.name}</span> <span class="price">🪙 ${c.price}</span>`,
+          onClick: () => (owned ? setOutfit(c) : openConfirm('cloth', c)),
+        }));
+      });
+    }
   }
+
+  document.querySelectorAll('.skin-tabs button').forEach(b =>
+    b.addEventListener('click', () => {
+      skinTab = b.dataset.tab;
+      showSkinMsg('', '');
+      renderSkinPage();
+    }));
 
   // ---------- 解鎖確認視窗（含跑步預覽） ----------
   const confirmEl = document.getElementById('confirm');
   const confirmPreview = document.getElementById('confirm-preview');
   const confirmOk = document.getElementById('confirm-ok');
-  let confirmSkin = null, previewTimer = null;
+  let confirmTarget = null, previewTimer = null;
 
-  function openConfirm(s) {
-    confirmSkin = s;
-    const enough = totalCoins >= s.price;
-    document.getElementById('confirm-title').textContent = `要解鎖「${s.name}」造型嗎？`;
-    document.getElementById('confirm-info').textContent = `需要 🪙 ${s.price}，目前持有 🪙 ${totalCoins}`;
+  function openConfirm(kind, item) {
+    confirmTarget = { kind, item };
+    const enough = totalCoins >= item.price;
+    document.getElementById('confirm-title').textContent =
+      `要解鎖「${item.name}」${kind === 'color' ? '造型' : '衣服'}嗎？`;
+    document.getElementById('confirm-info').textContent = `需要 🪙 ${item.price}，目前持有 🪙 ${totalCoins}`;
     document.getElementById('confirm-warn').textContent =
-      enough ? '' : `金幣不足，還差 ${s.price - totalCoins} 枚`;
+      enough ? '' : `金幣不足，還差 ${item.price - totalCoins} 枚`;
     confirmOk.disabled = !enough;
 
+    const look = lookOf(kind, item);
     let step = 0;
-    drawSkinPreview(confirmPreview, s.color, 200, 110, 3, step);
+    drawSkinPreview(confirmPreview, look.color, look.item, 200, 110, 3, step);
     previewTimer = setInterval(() => {
       step = 1 - step;
-      drawSkinPreview(confirmPreview, s.color, 200, 110, 3, step);
+      drawSkinPreview(confirmPreview, look.color, look.item, 200, 110, 3, step);
     }, 130);
 
     confirmEl.hidden = false;
@@ -705,24 +817,30 @@
   function closeConfirm() {
     clearInterval(previewTimer);
     confirmEl.hidden = true;
-    confirmSkin = null;
+    confirmTarget = null;
   }
 
   confirmOk.addEventListener('click', () => {
-    const s = confirmSkin;
+    const { kind, item } = confirmTarget;
     closeConfirm();
-    buySkin(s);
+    buyItem(kind, item);
   });
   document.getElementById('confirm-cancel').addEventListener('click', closeConfirm);
   confirmEl.addEventListener('click', e => { if (e.target === confirmEl) closeConfirm(); });
 
-  function buySkin(s) {
-    if (totalCoins < s.price) return;
-    totalCoins -= s.price;
-    unlocked.add(s.id);
-    setSkin(s);
+  function buyItem(kind, item) {
+    if (totalCoins < item.price) return;
+    totalCoins -= item.price;
+    if (kind === 'color') {
+      unlocked.add(item.id);
+      setSkin(item);
+      showSkinMsg(`🎉 解鎖成功！已換上「${item.name}」造型`, 'ok');
+    } else {
+      unlockedClothes.add(item.id);
+      setOutfit(item);
+      showSkinMsg(`🎉 解鎖成功！已穿上「${item.name}」`, 'ok');
+    }
     renderSkinPage();
-    showSkinMsg(`🎉 解鎖成功！已換上「${s.name}」造型`, 'ok');
     beep(1000, 0.08);
     setTimeout(() => beep(1500, 0.12), 80);
   }

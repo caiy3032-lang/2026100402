@@ -213,7 +213,7 @@
 <script>
   const W = 800, H = 220, GROUND = 190, S = 2; // S = 像素縮放
   const FG = '#535353', BG = '#f7f7f7';
-  const VERSION = '1.6.1';
+  const VERSION = '1.6.2';
 
   // ---------- 造型 ----------
   const SKINS = [
@@ -228,6 +228,7 @@
   // 衣服是疊在恐龍身上的像素圖，座標系統和 DINO_BODY 相同（20 欄 x 22 列，每格 S=2px）
   // pixels：每列字串，'.' = 透明，其他字元對應 colors；offsetY = pixels 第一列畫在恐龍第幾列
   // duck：蹲下時的像素圖（27 欄 x 13 列）；duckOffsetY = duck 第一列畫在第幾列（預設 0）；沒有 duck 就蹲下時不畫
+  // foot：鞋子類，畫在兩隻腳上（第一欄對齊腿的左緣、最後一列對齊腳掌），會跟著跑步動作抬腳
   const CLOTHES = [
     {
       id: 'tshirt', name: '灰色T恤', emoji: '👕', price: 10,
@@ -269,6 +270,60 @@
         '..................aaaaaaa.....',
         '.................aaaaaaaaa....',
         '.................bbbbbbbbbbbbb',
+      ],
+    },
+    {
+      id: 'shirt-9370db', name: '紫色襯衫', emoji: '👔', price: 10,
+      colors: { a: '#9370db', b: '#8061bf' },
+      offsetY: 6,
+      pixels: [
+        '.........bbbbb......',
+        '........abaaaba.....',
+        '......aaaaaaabaa....',
+        '.....aaaaaaaaaaaa...',
+        '....aaaaaaaaabaa....',
+        '....aaaaaaaaaaaa....',
+        '....aaaaaaaaab......',
+        '....bbbbbbbbbb......',
+      ],
+      duck: [
+        '...........................',
+        '.....aaaaaaaaaabb..........',
+        '.....aaaaaaaaaaab..........',
+        '.....aaaaaaaaaaab..........',
+        '.....aaaaaaaaaaab..........',
+        '.....aaaaaaaaaaaa..........',
+        '.....bbbbbbbbbbbb..........',
+      ],
+    },
+    {
+      id: 'shoes-ffb6c1', name: '粉色鞋子', emoji: '👟', price: 10,
+      colors: { a: '#ffb6c1', b: '#de9ea8' },
+      foot: [
+        'aab.',
+        'aaaa',
+      ],
+    },
+    {
+      id: 'tshirt-40e0d0', name: '青色T恤', emoji: '👕', price: 10,
+      colors: { a: '#40e0d0', b: '#38c3b5' },
+      offsetY: 6,
+      pixels: [
+        '.........abbba......',
+        '........aaaaaaa.....',
+        '......aaaaaaaaaa....',
+        '.....aaaaaaaaaaaa...',
+        '....aaaaaaaaaaaa....',
+        '....aaaaaaaaaaaa....',
+        '....bbbbbbbbbbb.....',
+      ],
+      duck: [
+        '...........................',
+        '......aaaaaaaaaab..........',
+        '......aaaaaaaaaab..........',
+        '......aaaaaaaaaab..........',
+        '......aaaaaaaaaab..........',
+        '......bbbbbbbbbbb..........',
       ],
     },
   ];
@@ -318,17 +373,30 @@
   updateSkinButton();
 
   // 把衣服疊畫在恐龍上；colorFn 用來處理夜晚模式的顏色反轉
-  function drawOutfit(p, ox, oy, scale, item, ducking, colorFn = c => c) {
-    const rows = item && (ducking ? item.duck : item.pixels);
-    if (!rows) return;
-    const top = (ducking ? item.duckOffsetY : item.offsetY) || 0;
-    rows.forEach((row, r) => {
+  // step：跑步動作（null = 兩隻腳都著地，0/1 = 跟 drawDino 的腿一樣輪流抬腳）
+  function drawOutfit(p, ox, oy, scale, item, ducking, colorFn = c => c, step = null) {
+    if (!item) return;
+    const paint = (rows, top, left = 0) => rows.forEach((row, r) => {
       for (let c = 0; c < row.length; c++) {
         if (row[c] === '.') continue;
         p.fillStyle = colorFn(item.colors[row[c]]);
-        p.fillRect(ox + c * scale, oy + (top + r) * scale, scale, scale);
+        p.fillRect(ox + (left + c) * scale, oy + (top + r) * scale, scale, scale);
       }
     });
+
+    // 鞋子類（foot）：畫在兩隻腳上，最後一列對齊腳掌；抬起的腳腳掌比較高
+    if (item.foot) {
+      const legs = ducking
+        ? [{ col: 6, down: 12, up: 10 }, { col: 12, down: 12, up: 10 }]
+        : [{ col: 5, down: 21, up: 18 }, { col: 10, down: 21, up: 18 }];
+      legs.forEach((leg, i) => {
+        const lifted = step === (i === 0 ? 1 : 0);
+        paint(item.foot, (lifted ? leg.up : leg.down) - (item.foot.length - 1), leg.col);
+      });
+    }
+
+    const rows = ducking ? item.duck : item.pixels;
+    if (rows) paint(rows, (ducking ? item.duckOffsetY : item.offsetY) || 0);
   }
 
   const canvas = document.getElementById('game');
@@ -578,7 +646,7 @@
       const dl = (c, short) => short ? (px(c, 8, 2, 2), px(c, 10, 3, 1)) : (px(c, 8, 2, 4), px(c, 12, 3, 1));
       dl(6, running && step === 1);
       dl(12, running && step === 0);
-      drawOutfit(ctx, x, y, S, outfit, true, nightSafe);
+      drawOutfit(ctx, x, y, S, outfit, true, nightSafe, running ? step : null);
       return;
     }
 
@@ -588,7 +656,7 @@
     leg(5, 16, running && step === 1);
     leg(10, 16, running && step === 0);
 
-    drawOutfit(ctx, x, y, S, outfit, false, nightSafe);
+    drawOutfit(ctx, x, y, S, outfit, false, nightSafe, running ? step : null);
 
     if (state === 'over') {
       // 死掉時的 X 眼（畫在衣服之後，保持在最上層）
@@ -736,7 +804,7 @@
     const leg = (c, short) => short ? (px(c, 16, 2, 2), px(c, 18, 3, 1)) : (px(c, 16, 2, 5), px(c, 21, 3, 1));
     leg(5, step === 1);
     leg(10, step === 0);
-    drawOutfit(p, ox, oy, scale, item, false);
+    drawOutfit(p, ox, oy, scale, item, false, undefined, step);
   }
 
   const skinCoins = document.getElementById('skin-coins');

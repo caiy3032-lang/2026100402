@@ -64,7 +64,7 @@
 <script>
   const W = 800, H = 220, GROUND = 190, S = 2; // S = 像素縮放
   const FG = '#535353', BG = '#f7f7f7';
-  const VERSION = '1.3.1';
+  const VERSION = '1.3.2';
 
   // ---------- 造型 ----------
   const SKINS = [
@@ -154,7 +154,9 @@
   let milestone, flashTimer, nextNight, overAt;
   let coins, coinTimer, runCoins, popups;
   let hi = Number(localStorage.getItem('dino-hi') || 0);
-  let totalCoins = Number(localStorage.getItem('dino-coins') || 0);
+  // 累計金幣只在這次開啟網頁期間跨局累積，重新整理就歸零
+  let totalCoins = 0;
+  localStorage.removeItem('dino-coins'); // 清掉舊版存下來的金幣
   const keys = { jump: false, down: false };
 
   function reset() {
@@ -237,7 +239,6 @@
   function collectCoin(c) {
     runCoins++;
     totalCoins++;
-    localStorage.setItem('dino-coins', totalCoins);
     popups.push({ x: c.x, y: c.y - 10, t: 30 });
     beep(1300, 0.05, 'square', 0.04);
     setTimeout(() => beep(1750, 0.08, 'square', 0.04), 50);

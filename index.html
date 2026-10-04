@@ -213,7 +213,7 @@
 <script>
   const W = 800, H = 220, GROUND = 190, S = 2; // S = 像素縮放
   const FG = '#535353', BG = '#f7f7f7';
-  const VERSION = '1.6.0';
+  const VERSION = '1.6.1';
 
   // ---------- 造型 ----------
   const SKINS = [
@@ -227,7 +227,7 @@
   ];
   // 衣服是疊在恐龍身上的像素圖，座標系統和 DINO_BODY 相同（20 欄 x 22 列，每格 S=2px）
   // pixels：每列字串，'.' = 透明，其他字元對應 colors；offsetY = pixels 第一列畫在恐龍第幾列
-  // duck：蹲下時的像素圖（27 欄 x 13 列，從第 0 列開始）；沒有就蹲下時不畫
+  // duck：蹲下時的像素圖（27 欄 x 13 列）；duckOffsetY = duck 第一列畫在第幾列（預設 0）；沒有 duck 就蹲下時不畫
   const CLOTHES = [
     {
       id: 'tshirt', name: '灰色T恤', emoji: '👕', price: 10,
@@ -249,6 +249,26 @@
         '......aaaaaaaaaab..........',
         '......aaaaaaaaaab..........',
         '......bbbbbbbbbbb..........',
+      ],
+    },
+    {
+      id: 'cap-87cefa', name: '藍色鴨舌帽', emoji: '🧢', price: 10,
+      colors: { a: '#87cefa', b: '#75b3da' },
+      offsetY: -4,
+      pixels: [
+        '..............b.........',
+        '............aaaaa.......',
+        '...........aaaaaaa......',
+        '..........aaaaaaaaa.....',
+        '..........bbbbbbbbbbbbb.',
+      ],
+      duckOffsetY: -4,
+      duck: [
+        '.....................b........',
+        '...................aaaaa......',
+        '..................aaaaaaa.....',
+        '.................aaaaaaaaa....',
+        '.................bbbbbbbbbbbbb',
       ],
     },
   ];
@@ -301,7 +321,7 @@
   function drawOutfit(p, ox, oy, scale, item, ducking, colorFn = c => c) {
     const rows = item && (ducking ? item.duck : item.pixels);
     if (!rows) return;
-    const top = ducking ? 0 : (item.offsetY || 0);
+    const top = (ducking ? item.duckOffsetY : item.offsetY) || 0;
     rows.forEach((row, r) => {
       for (let c = 0; c < row.length; c++) {
         if (row[c] === '.') continue;

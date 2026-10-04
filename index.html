@@ -34,19 +34,73 @@
     padding: 1px 6px;
     font-family: inherit;
   }
+  .skins { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
+  .skins button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    background: #fff;
+    color: inherit;
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .skins button.active { border-color: #535353; font-weight: bold; }
+  .skins .dot { width: 14px; height: 14px; border-radius: 50%; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
+<div class="skins" id="skins">造型：</div>
 <div class="help">
   <kbd>空白鍵</kbd> / <kbd>↑</kbd> / 點擊畫面：跳躍（按住跳更高）<br>
-  <kbd>↓</kbd>：蹲下（空中按可快速落地）
+  <kbd>↓</kbd>：蹲下（空中按可快速落地）<br>
+  <kbd>1</kbd>~<kbd>4</kbd>：切換恐龍造型
 </div>
 
 <script>
   const W = 800, H = 220, GROUND = 190, S = 2; // S = 像素縮放
   const FG = '#535353', BG = '#f7f7f7';
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
+
+  // ---------- 造型 ----------
+  const SKINS = [
+    { id: 'classic', name: '經典', color: FG },
+    { id: 'red',     name: '紅',   color: '#e53935' },
+    { id: 'blue',    name: '藍',   color: '#1e88e5' },
+    { id: 'green',   name: '綠',   color: '#43a047' },
+  ];
+  let skin = SKINS.find(s => s.id === localStorage.getItem('dino-skin')) || SKINS[0];
+
+  // 夜晚時整個 canvas 會被 invert，先把顏色反轉一次，顯示出來才會是原本的顏色
+  function invertColor(hex) {
+    const n = 0xffffff - parseInt(hex.slice(1), 16);
+    return '#' + n.toString(16).padStart(6, '0');
+  }
+  function dinoColor() {
+    return canvas.classList.contains('night') && skin.id !== 'classic'
+      ? invertColor(skin.color) : skin.color;
+  }
+
+  function setSkin(s) {
+    skin = s;
+    localStorage.setItem('dino-skin', s.id);
+    document.querySelectorAll('#skins button').forEach(b =>
+      b.classList.toggle('active', b.dataset.skin === s.id));
+  }
+
+  const skinBar = document.getElementById('skins');
+  SKINS.forEach(s => {
+    const btn = document.createElement('button');
+    btn.dataset.skin = s.id;
+    btn.innerHTML = `<span class="dot" style="background:${s.color}"></span>${s.name}`;
+    btn.addEventListener('click', () => { setSkin(s); btn.blur(); });
+    skinBar.appendChild(btn);
+  });
+  setSkin(skin);
 
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -230,7 +284,8 @@
     const px = (c, r, w = 1, h = 1) => ctx.fillRect(x + c * S, y + r * S, w * S, h * S);
     const running = state === 'running' && dino.onGround;
     const step = Math.floor(frame / 5) % 2;
-    ctx.fillStyle = FG;
+    const color = dinoColor();
+    ctx.fillStyle = color;
 
     const leg = (c, top, short) => {
       if (short) { px(c, top, 2, 2); px(c, top + 2, 3, 1); }
@@ -243,7 +298,7 @@
       px(17, 0, 10, 5);                // 頭
       px(17, 5, 6, 1);
       ctx.fillStyle = BG; px(19, 1);   // 眼睛
-      ctx.fillStyle = FG;
+      ctx.fillStyle = color;
       // 蹲下時腿只有 4 列高
       const dl = (c, short) => short ? (px(c, 8, 2, 2), px(c, 10, 3, 1)) : (px(c, 8, 2, 4), px(c, 12, 3, 1));
       dl(6, running && step === 1);
@@ -258,7 +313,7 @@
     if (state === 'over') {
       // 死掉時的 X 眼
       ctx.fillStyle = BG; px(11, 0, 3, 3);
-      ctx.fillStyle = FG; px(11, 0); px(13, 0); px(12, 1); px(11, 2); px(13, 2);
+      ctx.fillStyle = color; px(11, 0); px(13, 0); px(12, 1); px(11, 2); px(13, 2);
     }
 
     leg(5, 16, running && step === 1);
@@ -379,6 +434,8 @@
     } else if (['ArrowDown', 'KeyS'].includes(e.code)) {
       e.preventDefault();
       keys.down = true;
+    } else if (/^Digit[1-4]$/.test(e.code)) {
+      setSkin(SKINS[Number(e.code.slice(5)) - 1]);
     }
   });
   document.addEventListener('keyup', e => {
